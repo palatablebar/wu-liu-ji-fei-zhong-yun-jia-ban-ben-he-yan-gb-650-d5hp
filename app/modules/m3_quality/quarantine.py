@@ -39,10 +39,11 @@ def codes_of(items: list[dict]) -> list[str]:
 
 
 def csv_text(items: list[dict]) -> str:
-    """证据行：原始行号 + 原因码 + 中文标签 + 原值。"""
+    """证据行：原始行号 + 原因码 + 中文标签 + 原值 + 段号。"""
     buffer = io.StringIO()
     writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow(["line_no", "waybill_no", "reason_code", "reason_label", "detail", "raw"])
+    writer.writerow(["line_no", "waybill_no", "reason_code", "reason_label",
+                     "detail", "raw", "leg_no"])
     for item in sorted(items, key=lambda i: (i["line_no"], i["code"])):
         writer.writerow([
             item["line_no"],
@@ -51,5 +52,6 @@ def csv_text(items: list[dict]) -> str:
             label(item["code"]),
             item["detail"],
             (item["raw"] or "").replace("\n", "\\n"),
+            int(item.get("leg_no") or 0),
         ])
     return buffer.getvalue()

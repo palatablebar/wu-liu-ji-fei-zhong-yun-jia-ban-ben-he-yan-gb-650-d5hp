@@ -17,6 +17,7 @@ def page_weights(request: Request):
     run_id = context["run_id"]
     context.update({
         "lines": service.lines(run_id) if run_id else [],
+        "leg_lines": service.leg_lines(run_id) if run_id else [],
         "summary": service.summary(run_id) if run_id else {},
         "labels": billable.SOURCE_LABEL,
     })
@@ -31,6 +32,7 @@ def api_weights(run: str = ""):
         "run_id": run_id,
         "summary": service.summary(run_id) if run_id else {},
         "lines": service.lines(run_id) if run_id else [],
+        "legs": service.leg_lines(run_id) if run_id else [],
     }
 
 

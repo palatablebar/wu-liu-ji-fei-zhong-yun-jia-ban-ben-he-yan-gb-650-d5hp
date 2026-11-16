@@ -30,6 +30,12 @@ REASONS: dict[str, dict[str, str]] = {
     "MIN_CHARGE_APPLIED": {"label": "最低收费兜底", "level": INFO},
     "VOLUMETRIC_APPLIED": {"label": "体积重大于实重", "level": INFO},
     "ZONE_REMOTE": {"label": "偏远分区附加", "level": INFO},
+    # 联运：路线与分段计费。block 的码会把整票挡在发布之外，并带出 leg_no。
+    "ROUTE_GAP": {"label": "联运路线缺段", "level": BLOCK},
+    "ROUTE_DUP_LEG": {"label": "联运段号重复", "level": BLOCK},
+    "ROUTE_INVALID": {"label": "联运路线无法解析", "level": BLOCK},
+    "INTERLINE_ROUTE": {"label": "联运整票按段计价", "level": INFO},
+    "FIRST_WEIGHT_WAIVED": {"label": "后续段首重让利", "level": INFO},
 }
 
 CODES = tuple(REASONS)

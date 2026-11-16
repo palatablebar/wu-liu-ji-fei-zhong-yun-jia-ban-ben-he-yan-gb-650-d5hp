@@ -22,7 +22,11 @@ from app.modules.m7_export.handler import router as export_router
 
 
 def bootstrap() -> dict:
-    """幂等引导：库里已有运单且阶段齐全时不重复计算。"""
+    """幂等引导：库里已有运单且阶段齐全时不重复计算。
+
+    计费阶段内部会做核对与发布；核对不通过时旧版结果保持可读，
+    所以引导阶段失败不应让页面起不来。
+    """
     store.init_db()
     seeded = rate_service.seed_sample()
     run = waybill_service.ensure_sample_run()
@@ -30,11 +34,14 @@ def bootstrap() -> dict:
     if run_id:
         row = store.get_run(run_id) or {}
         stages = row.get("stages") or ""
-        if "weights" not in stages:
+        needs_weights = "weights" not in stages or not store.read_generation(run_id)
+        if needs_weights:
             weight_service.compute_weights(run_id)
-        row = store.get_run(run_id) or {}
-        if "charges" not in (row.get("stages") or ""):
-            charge_service.compute_charges(run_id)
+        if "charges" not in stages or not store.published_generation(run_id):
+            try:
+                charge_service.compute_charges(run_id)
+            except errors.DomainError as exc:
+                run = {**run, "bootstrap_blocked": {"code": exc.code, "detail": exc.detail}}
     return {"rates": seeded, "run": run}
 
 

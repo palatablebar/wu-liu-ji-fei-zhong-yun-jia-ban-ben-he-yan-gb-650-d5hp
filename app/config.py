@@ -73,6 +73,11 @@ REQUIRED_COLUMNS = (
     "pieces",
 )
 
+# 联运路线列：可选。填了就按段计价；空值表示整票由单一承运商承运。
+# 写法 ``SF/standard/Z1>JD/standard/Z2``（``>`` 与 ``→`` 都认），段号从 1 起。
+ROUTE_COLUMN = "route"
+ROUTE_SEPARATORS = (">", "→", "->")
+
 # 表头别名：只做列名归一，不改列语义
 HEADER_ALIASES = {
     "waybill": "waybill_no",
@@ -91,6 +96,8 @@ HEADER_ALIASES = {
     "尺寸单位": "dim_unit",
     "声明价值": "declared_value",
     "件数": "pieces",
+    "路线": "route",
+    "联运路线": "route",
 }
 
 CN_TZ = timezone(timedelta(hours=8))
@@ -101,3 +108,8 @@ SAMPLE_RATES_OVERLAP = "rate_cards_overlap.csv"
 SAMPLE_WAYBILLS = "waybills_dirty.csv"
 SAMPLE_WAYBILLS_GB = "waybills_gb18030.csv"
 SAMPLE_WAYBILLS_TRUNC = "waybills_truncated.csv"
+SAMPLE_WAYBILLS_INTERLINE = "waybills_interline.csv"
+
+# 联运整票只收一次首重：第一段照常收首重，后续段的「首重价」按让利折扣抵减。
+# 承运合同是每段各收首重，客户协议只认一次，差额就是公司让利，必须留痕。
+INTERLINE_CREDIT_RATE = Decimal("1.00")

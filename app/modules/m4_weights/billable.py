@@ -7,12 +7,14 @@ from decimal import Decimal
 ACTUAL = "actual"
 VOLUMETRIC = "volumetric"
 TIE = "tie"
+MIXED = "mixed"
 UNBILLED = "unbilled"
 
 SOURCE_LABEL = {
     ACTUAL: "实重",
     VOLUMETRIC: "体积重",
     TIE: "实重",
+    MIXED: "分段择用",
     UNBILLED: "未计费",
 }
 

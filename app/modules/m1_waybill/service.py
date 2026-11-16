@@ -6,7 +6,7 @@ from decimal import Decimal
 
 from app import config, manifest, store
 from app.errors import DomainError
-from app.modules.m1_waybill import decode, normalize, reader
+from app.modules.m1_waybill import decode, normalize, reader, route
 from app.modules.m2_rates import service as rates
 from app.modules.m3_quality import rules as quality
 from app.reasons import sort_codes
@@ -22,16 +22,22 @@ def _sample_bytes(name: str) -> bytes:
 def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
     codes: list[str] = []
     blocks: list[str] = []
+    block_meta: dict[str, dict] = {}
 
     def take(values) -> None:
         for code in values:
             if code:
                 codes.append(code)
 
+    def block(code: str, leg_no: int = 0, detail: str = "") -> None:
+        if code not in blocks:
+            blocks.append(code)
+        block_meta.setdefault(code, {"leg_no": leg_no, "detail": detail})
+
     if record.truncated:
-        blocks.append("TRUNCATED_TAIL")
+        block("TRUNCATED_TAIL", detail="尾行截断")
     elif not record.arity_ok:
-        blocks.append("ARITY_MISMATCH")
+        block("ARITY_MISMATCH", detail="列数与表头不一致")
 
     waybill_no = (reader.cell(record, header, "waybill_no") or "").strip()
     carrier = (reader.cell(record, header, "carrier") or "").strip().upper()
@@ -41,7 +47,14 @@ def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
     if zone_changed:
         codes.append("FULLWIDTH_NORMALIZED")
     if not waybill_no or not carrier or not service or not zone:
-        blocks.append("MISSING_KEY")
+        block("MISSING_KEY", detail="关键字段为空")
+
+    route_text = (reader.cell(record, header, config.ROUTE_COLUMN) or "").strip()
+    legs, route_problems = route.parse(route_text, carrier, service, zone)
+    for problem in route_problems:
+        block(problem["code"], problem.get("leg_no", 0), problem.get("detail", ""))
+    if route.is_interline(legs) and not route_problems:
+        codes.append("INTERLINE_ROUTE")
 
     weight_kg, weight_codes, weight_reason = normalize.to_kg(
         reader.cell(record, header, "weight"),
@@ -49,7 +62,7 @@ def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
     )
     take(weight_codes)
     if weight_reason:
-        blocks.append(weight_reason)
+        block(weight_reason, detail="重量无法采信")
 
     dim_unit = reader.cell(record, header, "dim_unit")
     dims = []
@@ -57,20 +70,20 @@ def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
         value, axis_codes, axis_reason = normalize.to_cm(reader.cell(record, header, axis), dim_unit)
         take(axis_codes)
         if axis_reason:
-            blocks.append(axis_reason)
+            block(axis_reason, detail="尺寸无法采信")
         dims.append(value)
 
     if all(value is not None for value in dims):
         dim_reason = normalize.check_dims(*dims)
         if dim_reason:
-            blocks.append(dim_reason)
+            block(dim_reason, detail="尺寸为 0 或越界")
 
     pickup, date_codes, date_reason, style = normalize.to_utc(
         reader.cell(record, header, "pickup_date")
     )
     take(date_codes)
     if date_reason:
-        blocks.append(date_reason)
+        block(date_reason, detail="提货时间无法解析")
     if style:
         styles.add(style)
 
@@ -85,6 +98,8 @@ def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
         "carrier": carrier,
         "service": service,
         "zone": zone,
+        "route": route.route_text(legs) if route_text else "",
+        "legs": legs,
         "pickup": pickup,
         "pickup_utc": pickup.isoformat().replace("+00:00", "Z") if pickup else "",
         "weight_kg": weight_kg,
@@ -95,6 +110,7 @@ def _draft(record: reader.Record, header: list[str], styles: set[str]) -> dict:
         "pieces": pieces,
         "codes": codes,
         "blocks": blocks,
+        "block_meta": block_meta,
     }
     return draft
 
@@ -126,21 +142,34 @@ def import_bytes(raw: bytes, name: str) -> dict:
 
     quality.apply_tz_styles(drafts, styles)
     for draft in drafts:
-        if not draft["blocks"]:
-            draft["blocks"].extend(quality.check_reference(draft, keys, known_carriers))
+        if draft["blocks"]:
+            continue
+        issues = quality.check_route(draft.pop("legs", []), keys, known_carriers)
+        if issues:
+            draft.setdefault("block_meta", {})
+            for item in issues:
+                draft["block_meta"][item["code"]] = {
+                    "leg_no": item["leg_no"], "detail": item["detail"],
+                }
+            draft["blocks"].extend(item["code"] for item in issues)
     quality.dedupe(drafts)
 
     good: list[dict] = []
     bad: list[dict] = []
     for draft in drafts:
         if draft["blocks"]:
+            meta = draft.get("block_meta", {})
             for code in sort_codes(draft["blocks"]):
+                note = meta.get(code, {})
                 bad.append({
                     "line_no": draft["line_no"],
                     "waybill_no": draft["waybill_no"],
                     "code": code,
-                    "detail": " ".join(sort_codes(draft["codes"] + draft["blocks"])),
+                    "detail": note.get("detail") or " ".join(
+                        sort_codes(draft["codes"] + draft["blocks"])
+                    ),
                     "raw": draft["raw"],
+                    "leg_no": int(note.get("leg_no") or 0),
                 })
             continue
         good.append({
@@ -149,6 +178,7 @@ def import_bytes(raw: bytes, name: str) -> dict:
             "carrier": draft["carrier"],
             "service": draft["service"],
             "zone": draft["zone"],
+            "route": draft.get("route", ""),
             "pickup_utc": draft["pickup_utc"],
             "weight_kg": str(draft["weight_kg"]),
             "length_cm": str(draft["length_cm"]),
@@ -186,6 +216,10 @@ def import_bytes(raw: bytes, name: str) -> dict:
         "created_at": now,
         "updated_at": now,
     })
+    # 采信是派生结果的来源：原料变了，旧的草稿代不再有意义，等下一次计价重开一代。
+    for generation in store.list_generations(run_id):
+        if generation["status"] == "draft":
+            store.discard_draft(run_id, int(generation["generation"]))
     return {
         "run_id": run_id,
         "reused": False,

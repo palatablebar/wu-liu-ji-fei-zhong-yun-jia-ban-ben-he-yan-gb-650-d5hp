@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+from app.modules.m1_waybill import route
+
 PAYLOAD_FIELDS = (
     "carrier", "service", "zone", "pickup_utc",
     "weight_kg", "length_cm", "width_cm", "height_cm", "declared_value",
+    "route",
 )
 
 
@@ -28,6 +31,18 @@ def check_reference(draft: dict, keys: set[tuple[str, str, str]],
     if (carrier, service, zone) not in keys:
         return ["RATE_MISSING"]
     return []
+
+
+def check_route(legs: list[dict], keys: set[tuple[str, str, str]],
+                known_carriers: set[str]) -> list[dict]:
+    """逐段查运价；返回带段号的阻断项，让复核一眼看到卡在第几段。
+
+    单段运单沿用整票口径，与 ``check_reference`` 等价；联运逐段独立判定，
+    任何一段缺承运商或运价都整票隔离，不会只算一半。
+    """
+    if not legs:
+        return []
+    return route.check_legs(legs, keys, known_carriers)
 
 
 def dedupe(drafts: list[dict]) -> int:

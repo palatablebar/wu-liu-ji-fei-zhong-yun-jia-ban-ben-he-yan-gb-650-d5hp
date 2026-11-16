@@ -29,6 +29,16 @@ def api_invoice(run: str = ""):
     )
 
 
+@router.get("/api/export/legs.csv")
+def api_legs(run: str = ""):
+    run_id = run or store.latest_run_id()
+    return Response(
+        content=service.legs_csv(run_id),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="legs.csv"'},
+    )
+
+
 @router.get("/api/export/evidence.csv")
 def api_evidence(run: str = ""):
     run_id = run or store.latest_run_id()

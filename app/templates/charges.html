@@ -3,15 +3,30 @@
 {% block body %}
 <section class="head">
   <h1>分区附加</h1>
-  <p class="meta">账单行 {{ amounts.count or 0 }} · 应收 {{ amounts.total|money }} 元</p>
+  <p class="meta">
+    账单行 {{ amounts.count or 0 }} · 分段 {{ amounts.legs or 0 }} ·
+    应收 {{ amounts.total|money }} 元
+    {% if amounts.contract and amounts.contract != amounts.total %}
+    · 合同 {{ amounts.contract|money }} · 让利 {{ amounts.waiver|money }}
+    {% endif %}
+  </p>
 </section>
 
 <div class="rule-line">{{ rule(200) }}</div>
 
+{% if unpublished %}
+<section class="block bad">
+  <h2>当前是未发布的草案</h2>
+  <p class="meta">已发布代次 {{ published_generation or 0 }}，草案代次 {{ draft_generation }}。
+    这张账单要等对账通过并发布后才对外生效；此期间的导出仍是上一版。</p>
+</section>
+<div class="rule-line">{{ rule(200) }}</div>
+{% endif %}
+
 <section class="block">
   <form class="cmd" data-post="/api/charges" data-target="#charges-out" data-reload="1">
-    <button type="submit" class="btn">计算</button>
-    <span class="dim">叠加顺序 基础 → 续重 → 偏远 → 燃油 → 保价</span>
+    <button type="submit" class="btn">计算并核对</button>
+    <span class="dim">叠加顺序 基础 → 续重 → 偏远 → 燃油 → 保价 · 整票只收一次首重</span>
   </form>
   <pre id="charges-out" class="out">待计算</pre>
 </section>
@@ -31,6 +46,13 @@
   </dl>
   <div class="stack" data-stack='{{ {"基础": amounts.parts.base, "续重": amounts.parts.step, "偏远": amounts.parts.remote, "燃油": amounts.parts.fuel, "保价": amounts.parts.insurance} | tojson(0) }}'></div>
   <p class="meta">分项之和与应收{{ "相等" if amounts.conserved else "不等" }}</p>
+  {% if amounts.contract and amounts.contract != amounts.total %}
+  <p class="meta">
+    承运合同逐段合计 {{ amounts.contract|money }} 元，整票只收一次首重让利 {{ amounts.waiver|money }} 元，
+    对客户应收 {{ amounts.total|money }} 元。
+    {{ "合同减让利与应收相等" if amounts.contract_conserved else "合同减让利与应收不等" }}。
+  </p>
+  {% endif %}
 </section>
 
 <div class="rule-line">{{ rule(200) }}</div>
@@ -42,7 +64,8 @@
   <table class="grid">
     <thead>
       <tr><th>运单号</th><th class="num">基础</th><th class="num">续重</th><th class="num">偏远</th>
-        <th class="num">燃油</th><th class="num">保价</th><th class="num">应收</th><th>版本</th><th>标记</th></tr>
+        <th class="num">燃油</th><th class="num">保价</th><th class="num">合同</th><th class="num">让利</th>
+        <th class="num">应收</th><th>版本</th><th>标记</th></tr>
     </thead>
     <tbody>
       {% for row in lines %}
@@ -53,6 +76,8 @@
         <td class="num">{{ row.remote_amount|money }}</td>
         <td class="num">{{ row.fuel_amount|money }}</td>
         <td class="num">{{ row.insurance_amount|money }}</td>
+        <td class="num dim">{{ row.contract_total|money }}</td>
+        <td class="num dim">{{ row.waiver_amount|money }}</td>
         <td class="num strong">{{ row.total_amount|money }}</td>
         <td class="mono dim">{{ row.version_id }}</td>
         <td class="mono dim">{{ row.codes }}</td>
@@ -64,4 +89,66 @@
   <p class="empty">还没有账单行。</p>
   {% endif %}
 </section>
+
+<div class="rule-line">{{ rule(200) }}</div>
+
+<section class="block">
+  <h2>分段依据</h2>
+  <p class="meta">每一段用自己的运价版本，第一段收首重，后续段首重让利</p>
+  {% if leg_lines %}
+  <table class="grid">
+    <thead>
+      <tr><th>运单号</th><th class="num">段</th><th>承运商</th><th>服务</th><th>分区</th>
+        <th>版本</th><th class="num">计费重</th><th class="num">段数</th>
+        <th class="num">基础</th><th class="num">续重</th><th class="num">燃油</th><th class="num">保价</th>
+        <th class="num">合同</th><th class="num">让利</th><th class="num">开票</th><th>标记</th></tr>
+    </thead>
+    <tbody>
+      {% for row in leg_lines %}
+      <tr>
+        <td class="mono">{{ row.waybill_no }}</td>
+        <td class="num">{{ row.leg_no }}</td>
+        <td>{{ row.carrier }}</td>
+        <td>{{ row.service }}</td>
+        <td>{{ row.zone }}</td>
+        <td class="mono dim">{{ row.version_id }}</td>
+        <td class="num">{{ row.billable_kg|kg }}</td>
+        <td class="num">{{ row.steps }}</td>
+        <td class="num">{{ row.base_amount|money }}</td>
+        <td class="num">{{ row.step_amount|money }}</td>
+        <td class="num">{{ row.fuel_amount|money }}</td>
+        <td class="num">{{ row.insurance_amount|money }}</td>
+        <td class="num dim">{{ row.contract_total|money }}</td>
+        <td class="num dim">{{ row.waiver_amount|money }}</td>
+        <td class="num strong">{{ row.billed_total|money }}</td>
+        <td class="mono dim">{{ row.codes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">还没有分段账单行。</p>
+  {% endif %}
+</section>
+
+{% if issues %}
+<div class="rule-line">{{ rule(200) }}</div>
+<section class="block bad">
+  <h2>未定价的段</h2>
+  <p class="meta">这些问题会挡住发布，旧版账单保持可下载</p>
+  <table class="grid">
+    <thead><tr><th>运单号</th><th class="num">段</th><th>原因码</th><th>说明</th></tr></thead>
+    <tbody>
+      {% for item in issues %}
+      <tr class="flag-bad">
+        <td class="mono">{{ item.waybill_no }}</td>
+        <td class="num">{{ item.leg_no }}</td>
+        <td class="mono">{{ item.code }}</td>
+        <td class="mono dim">{{ item.detail }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
 {% endblock %}

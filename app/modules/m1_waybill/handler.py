@@ -21,6 +21,7 @@ def page_waybills(request: Request):
         "quarantine": quality.rows(run_id) if run_id else [],
         "distribution": quality.distribution(run_id) if run_id else [],
         "samples": {"waybills": config.SAMPLE_WAYBILLS,
+                    "interline": config.SAMPLE_WAYBILLS_INTERLINE,
                     "gb": config.SAMPLE_WAYBILLS_GB,
                     "trunc": config.SAMPLE_WAYBILLS_TRUNC},
     })

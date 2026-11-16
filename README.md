@@ -11,8 +11,10 @@
 - 质量隔离：原因码分级、隔离区证据行、可导出 CSV
 - 计费重：体积重按服务除数、取实重与体积重的较大值、按 0.5 kg 台阶向上进位
 - 分区附加：首重价 + 续重单价 × 段数、最低收费兜底、偏远固定额、燃油百分比、保价费率
-- 账单对账：运单行账、金额账、版本账、计费重账四账相等
-- 导出：账单 CSV、证据 CSV、运行清单 JSON（含 run_id 与输入 sha256）
+- 联运分段：一票多承运商接力按段择版计价，整票只收一次首重，差额记为让利
+- 账单对账：运单行账、金额账、版本账、计费重账、分段账五账相等
+- 结果发布：计算写草稿代，核对通过才原子发布，失败保留旧版全部结果
+- 导出：账单 CSV、分段 CSV、证据 CSV、运行清单 JSON（含 run_id 与输入 sha256）
 
 ## 模块
 
@@ -23,8 +25,8 @@
 | M3 质量隔离 | 原因码分布与证据导出 | `GET /api/quarantine` `GET /api/quarantine.csv` |
 | M4 计费重 | 体积重与进位 | `POST /api/weights` |
 | M5 分区附加 | 分区价与附加费叠算 | `POST /api/charges` |
-| M6 账单对账 | 四账核对 | `GET /api/reconcile` |
-| M7 导出 | 账单、证据、清单 | `GET /api/export/invoice.csv` |
+| M6 账单对账 | 五账核对、分段归因、代次发布 | `GET /api/reconcile` `POST /api/reconcile/publish` |
+| M7 导出 | 账单、分段、证据、清单 | `GET /api/export/invoice.csv` `GET /api/export/legs.csv` |
 
 ## 核心规则
 
@@ -35,11 +37,15 @@
 4. 兜底：分区价低于 `min_charge` 时补差额到首重项。
 5. 附加：偏远固定额，燃油 = `(基础 + 续重) × fuel_pct`，保价 = `声明价值 × insurance_pct`。
 6. 应收：五个分项之和，先各自量化到分再相加，合计必然等于分项之和。
+7. 联运：`route` 列写 `承运商/服务/分区>承运商/服务/分区`，每段用自己的运价择版计价；
+   第一段收首重，后续段首重记为让利，`合同总额 − 让利 = 应收`。
+8. 发布：结果按代次整体替换，五账全平且无段级问题才发布；核对不通过保留旧版，重跑不重复生成分段。
 
 ## 定义与已知不覆盖
 
-单位表、量化刻度、半开区间、去重键、空态与原因码见 `docs/DATA-DICTIONARY.md`；
-陷阱登记与对账规则见 `docs/DEPTH.md`；不覆盖多币种换算、一票多分区、承运商账单二次导入。
+单位表、量化刻度、半开区间、去重键、联运路线与代次口径、空态与原因码见
+`docs/DATA-DICTIONARY.md`；陷阱登记与对账规则见 `docs/DEPTH.md`；不覆盖多币种换算、
+承运商账单二次导入、按件拆分体积重、联运按段拆分件数。
 
 ## 启动
 
@@ -57,8 +63,10 @@ docker compose up -d --build
 2. 运单页点「导入」，得到 27 条记录、15 票计费、12 行隔离与原因码分布
 3. 计费重页点「计算」，看 9 票体积重择用、6 票实重择用
 4. 分区附加页点「计算」，看五个分项与应收 1521.04 元
-5. 账单对账页看四账相等
-6. 导出页取账单 CSV、证据 CSV 与运行清单
+5. 账单对账页看五账相等与发布状态
+6. 运单页选 `waybills_interline.csv` 导入，看一票两段/三段的分段成本、
+   整票一次首重让利（合同 353.23 − 让利 91.01 = 应收 262.22），以及缺段/缺价票卡在第几段
+7. 导出页取账单 CSV、分段 CSV、证据 CSV 与运行清单
 
 ## 目录
 
@@ -68,8 +76,8 @@ app/modules/m1_waybill … m7_export   每个模块 handler + service + 2-3 个�
 app/templates   base + 6 页
 app/static      theme/layout/components + 3 个 js
 docs/           DEPTH.md DATA-DICTIONARY.md RUNBOOK.md
-sample_data/    rate_cards.csv（干净）与 4 份脏运单
-tests/          每模块一个测试文件 + e2e + 不变量
+sample_data/    rate_cards.csv（干净）、4 份脏运单、waybills_interline.csv（联运）
+tests/          每模块一个测试文件 + 联运 e2e + 不变量
 ```
 
 ## 测试

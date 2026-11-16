@@ -3,7 +3,13 @@
 {% block body %}
 <section class="head">
   <h1>计费重</h1>
-  <p class="meta">计费 {{ summary.billed or 0 }} · 体积重择用 {{ summary.volumetric_hits or 0 }} · 实重择用 {{ summary.actual_hits or 0 }} · 合计 {{ summary.billable_total or "0" }} kg</p>
+  <p class="meta">
+    计费 {{ summary.billed or 0 }} · 体积重择用 {{ summary.volumetric_hits or 0 }} ·
+    实重择用 {{ summary.actual_hits or 0 }}
+    {% if summary.mixed_hits %} · 分段择用 {{ summary.mixed_hits }}{% endif %}
+    · 联运 {{ summary.interline_waybills or 0 }} 票 / {{ summary.legs or 0 }} 段
+    · 合计 {{ summary.billable_total or "0" }} kg
+  </p>
 </section>
 
 <div class="rule-line">{{ rule(200) }}</div>
@@ -11,7 +17,7 @@
 <section class="block">
   <form class="cmd" data-post="/api/weights" data-target="#weights-out" data-reload="1">
     <button type="submit" class="btn">计算</button>
-    <span class="dim">台阶 {{ 0.5 }} kg 向上</span>
+    <span class="dim">台阶 {{ 0.5 }} kg 向上 · 每段各自取大进位</span>
   </form>
   <pre id="weights-out" class="out">待计算</pre>
 </section>
@@ -43,6 +49,42 @@
   </table>
   {% else %}
   <p class="empty">还没有计费重。</p>
+  {% endif %}
+</section>
+
+<div class="rule-line">{{ rule(200) }}</div>
+
+<section class="block">
+  <h2>分段计费重</h2>
+  <p class="meta">每段各自按该段运价取大、进位；整票计费重 = 各段之和</p>
+  {% if leg_lines %}
+  <table class="grid">
+    <thead>
+      <tr><th>运单号</th><th class="num">段</th><th>承运商</th><th>服务</th><th>分区</th>
+        <th class="num">实重</th><th class="num">体积重</th><th>来源</th>
+        <th class="num">计费重</th><th class="num">段数</th><th>版本</th><th>标记</th></tr>
+    </thead>
+    <tbody>
+      {% for row in leg_lines %}
+      <tr>
+        <td class="mono">{{ row.waybill_no }}</td>
+        <td class="num">{{ row.leg_no }}</td>
+        <td>{{ row.carrier }}</td>
+        <td>{{ row.service }}</td>
+        <td>{{ row.zone }}</td>
+        <td class="num">{{ row.actual_kg|kg }}</td>
+        <td class="num">{{ row.volumetric_kg|kg }}</td>
+        <td>{{ labels.get(row.source, row.source) }}</td>
+        <td class="num strong">{{ row.billable_kg|kg }}</td>
+        <td class="num">{{ row.steps }}</td>
+        <td class="mono dim">{{ row.version_id or "—" }}</td>
+        <td class="mono dim">{{ row.codes }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="empty">还没有分段计费重。</p>
   {% endif %}
 </section>
 {% endblock %}

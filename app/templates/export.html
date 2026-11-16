@@ -3,15 +3,28 @@
 {% block body %}
 <section class="head">
   <h1>导出</h1>
-  <p class="meta">账单 {{ overview.invoice_rows or 0 }} 行 · 证据 {{ overview.evidence_rows or 0 }} 行 · 应收 {{ overview.amount_total|money }} 元</p>
+  <p class="meta">
+    账单 {{ overview.invoice_rows or 0 }} 行 · 分段 {{ overview.leg_rows or 0 }} 行 ·
+    证据 {{ overview.evidence_rows or 0 }} 行 · 应收 {{ overview.amount_total|money }} 元
+    {% if overview.unpublished %} · 草案未发布，这里展示的是上一版结果{% endif %}
+  </p>
 </section>
 
 <div class="rule-line">{{ rule(200) }}</div>
+
+{% if overview.unpublished %}
+<section class="block bad">
+  <h2>有未发布的草案</h2>
+  <p class="meta">导出只读取已发布结果（代次 {{ overview.generation or 0 }}）。草案代次 {{ overview.draft_generation }} 需在对账页核对通过后才会切换。</p>
+</section>
+<div class="rule-line">{{ rule(200) }}</div>
+{% endif %}
 
 <section class="block">
   <h2>文件</h2>
   <ul class="links">
     <li><a href="/api/export/invoice.csv">账单 CSV</a><span class="dim mono">invoice.csv</span></li>
+    <li><a href="/api/export/legs.csv">分段 CSV</a><span class="dim mono">legs.csv</span></li>
     <li><a href="/api/export/evidence.csv">证据 CSV</a><span class="dim mono">evidence.csv</span></li>
     <li><a href="/api/export/manifest.json">运行清单</a><span class="dim mono">manifest.json</span></li>
     <li><a href="/api/quarantine.csv">隔离证据 CSV</a><span class="dim mono">quarantine.csv</span></li>
@@ -21,21 +34,26 @@
 <div class="rule-line">{{ rule(200) }}</div>
 
 <section class="block">
-  <h2>按载体汇总</h2>
+  <h2>按段承运商汇总</h2>
   {% if overview.carriers %}
   <table class="grid">
-    <thead><tr><th>载体</th><th class="num">票数</th><th class="num">应收</th><th>币种</th></tr></thead>
+    <thead><tr><th>承运商</th><th class="num">整票</th><th class="num">段</th>
+      <th class="num">合同</th><th class="num">让利</th><th class="num">开票</th><th>币种</th></tr></thead>
     <tbody>
       {% for row in overview.carriers %}
       <tr>
         <td>{{ row.carrier }}</td>
         <td class="num">{{ row.count }}</td>
+        <td class="num">{{ row.legs }}</td>
+        <td class="num dim">{{ row.contract }}</td>
+        <td class="num dim">{{ row.waiver }}</td>
         <td class="num">{{ row.total }}</td>
         <td>{{ row.currency }}</td>
       </tr>
       {% endfor %}
     </tbody>
   </table>
+  <p class="meta">让利归因到让出首重的那一段，便于按承运合同逐段结算。</p>
   {% else %}
   <p class="empty">还没有账单。</p>
   {% endif %}
